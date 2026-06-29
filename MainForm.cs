@@ -51,6 +51,7 @@ public sealed class MainForm : Form
         Text = "Folder Sync";
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Segoe UI", 9F);
+        ClientSize = new Size(760, 880);
         MinimumSize = new Size(720, 400);
 
         // Scrollable host so the whole window scrolls when content is taller than the window.
@@ -270,19 +271,6 @@ public sealed class MainForm : Form
 
         _loaded = true;
         RefreshScheduleStates();
-
-        // Open sized to fit the content (capped to the screen); the scroll panel handles any overflow.
-        Load += (_, _) =>
-        {
-            var screen = Screen.FromControl(this).WorkingArea;
-            var pref = root.PreferredSize;
-            int chromeW = Width - ClientSize.Width;
-            int chromeH = Height - ClientSize.Height;
-            int w = Math.Min(pref.Width + chromeW + 28, screen.Width - 40);
-            int h = Math.Min(pref.Height + chromeH + 8, screen.Height - 40);
-            Size = new Size(Math.Max(w, MinimumSize.Width), Math.Max(h, 480));
-            Location = new Point(screen.X + (screen.Width - Width) / 2, screen.Y + (screen.Height - Height) / 2);
-        };
     }
 
     // ===== Configuration editing =====
