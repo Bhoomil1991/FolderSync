@@ -1,0 +1,13 @@
+# Build output
+bin/
+obj/
+publish/
+
+# User-specific / IDE
+.vs/
+*.user
+*.suo
+
+# Local config & logs (created at runtime under %LOCALAPPDATA%, not here)
+config.json
+*.log
