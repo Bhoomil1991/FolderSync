@@ -49,11 +49,9 @@ public sealed class MainForm : Form
         _targets = new BindingList<SyncTarget>(_config.Targets);
 
         Text = "Folder Sync";
-        Width = 860;
-        Height = 920;
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Segoe UI", 9F);
-        MinimumSize = new Size(760, 640);
+        MinimumSize = new Size(720, 400);
 
         // Scrollable host so the whole window scrolls when content is taller than the window.
         var scrollHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
@@ -155,7 +153,7 @@ public sealed class MainForm : Form
         root.Controls.Add(syncRow, 0, 1);
 
         // ===== Schedule group =====
-        var sched = new GroupBox { Text = "Automatic scheduling (Windows Task Scheduler)", Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(10) };
+        var sched = new GroupBox { Text = "Automatic scheduling (Windows Task Scheduler)", Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(10, 10, 10, 14) };
         var schedOuter = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, Dock = DockStyle.Top, AutoSize = true, WrapContents = false };
 
         bool anyInstalled = ScheduleManager.Exists(ScheduleManager.DailyTask)
@@ -195,7 +193,7 @@ public sealed class MainForm : Form
 
         // ===== Email notifications =====
         var em = _config.Email;
-        var emailGroup = new GroupBox { Text = "Email notification after a scheduled sync", Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(10) };
+        var emailGroup = new GroupBox { Text = "Email notification after a scheduled sync", Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(10, 10, 10, 16) };
         // Outer 1-column layout: checkbox on top, collapsible detail grid below.
         var emailOuter = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1 };
         emailOuter.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -270,6 +268,19 @@ public sealed class MainForm : Form
 
         _loaded = true;
         RefreshScheduleStates();
+
+        // Open sized to fit the content (capped to the screen); the scroll panel handles any overflow.
+        Load += (_, _) =>
+        {
+            var screen = Screen.FromControl(this).WorkingArea;
+            var pref = root.PreferredSize;
+            int chromeW = Width - ClientSize.Width;
+            int chromeH = Height - ClientSize.Height;
+            int w = Math.Min(pref.Width + chromeW + 28, screen.Width - 40);
+            int h = Math.Min(pref.Height + chromeH + 8, screen.Height - 40);
+            Size = new Size(Math.Max(w, MinimumSize.Width), Math.Max(h, 480));
+            Location = new Point(screen.X + (screen.Width - Width) / 2, screen.Y + (screen.Height - Height) / 2);
+        };
     }
 
     // ===== Configuration editing =====
