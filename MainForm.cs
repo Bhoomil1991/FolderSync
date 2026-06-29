@@ -12,8 +12,8 @@ public sealed class MainForm : Form
     private readonly TextBox _sourceBox;
     private readonly CheckBox _mirrorCheck;
     private readonly DataGridView _destGrid;
-    private readonly TextBox _logBox;
     private readonly Button _syncButton;
+    private readonly object _logLock = new();
     private readonly Label _statusLabel;
     private readonly CheckBox _schedEnable;
     private readonly DateTimePicker _timePicker;
@@ -66,14 +66,12 @@ public sealed class MainForm : Form
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Padding = new Padding(12),
             ColumnCount = 1,
-            RowCount = 6,
+            RowCount = 4,
         };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // config
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // sync row
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // schedule
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // email
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // log header
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // log box (fixed-height control)
         scrollHost.Controls.Add(root);
 
         // ===== Configuration (editable) =====
@@ -149,8 +147,11 @@ public sealed class MainForm : Form
         _syncButton = new Button { Text = "Sync Now", Width = 130, Height = 40, Font = new Font("Segoe UI", 11F, FontStyle.Bold) };
         _syncButton.Click += async (_, _) => await DoSyncAsync();
         _statusLabel = new Label { Text = "Ready.", AutoSize = true, Margin = new Padding(14, 12, 0, 0) };
+        var openLogs = new LinkLabel { Text = "Open log folder", AutoSize = true, Margin = new Padding(14, 14, 0, 0) };
+        openLogs.Click += (_, _) => OpenInEditor(SyncConfig.LogDir);
         syncRow.Controls.Add(_syncButton);
         syncRow.Controls.Add(_statusLabel);
+        syncRow.Controls.Add(openLogs);
         root.Controls.Add(syncRow, 0, 1);
 
         // ===== Schedule group =====
@@ -266,29 +267,6 @@ public sealed class MainForm : Form
 
         emailGroup.Controls.Add(emailOuter);
         root.Controls.Add(emailGroup, 0, 3);
-
-        // ===== Log header =====
-        var logHeader = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.LeftToRight, Margin = new Padding(0, 8, 0, 0) };
-        logHeader.Controls.Add(new Label { Text = "Activity log", AutoSize = true, Font = new Font("Segoe UI", 9F, FontStyle.Bold), Margin = new Padding(0, 6, 12, 0) });
-        var openLogs = new LinkLabel { Text = "Open log folder", AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
-        openLogs.Click += (_, _) => OpenInEditor(SyncConfig.LogDir);
-        logHeader.Controls.Add(openLogs);
-        root.Controls.Add(logHeader, 0, 4);
-
-        // ===== Log box =====
-        _logBox = new TextBox
-        {
-            Multiline = true,
-            ReadOnly = true,
-            ScrollBars = ScrollBars.Vertical,
-            Dock = DockStyle.Top,
-            Height = 200,
-            Font = new Font("Consolas", 9F),
-            BackColor = Color.FromArgb(30, 30, 30),
-            ForeColor = Color.Gainsboro,
-            WordWrap = false,
-        };
-        root.Controls.Add(_logBox, 0, 5);
 
         _loaded = true;
         RefreshScheduleStates();
@@ -481,7 +459,6 @@ public sealed class MainForm : Form
         _cts = new CancellationTokenSource();
         _syncButton.Enabled = false;
         _statusLabel.Text = "Syncing…";
-        _logBox.Clear();
 
         var engine = new SyncEngine(_config);
         engine.Log += AppendLogThreadSafe;
@@ -506,13 +483,19 @@ public sealed class MainForm : Form
         }
     }
 
-    private void AppendLogThreadSafe(string line)
-    {
-        if (InvokeRequired) BeginInvoke(() => AppendLog(line));
-        else AppendLog(line);
-    }
+    private void AppendLogThreadSafe(string line) => AppendLog(line);
 
-    private void AppendLog(string line) => _logBox.AppendText(line + Environment.NewLine);
+    /// <summary>Writes a line to today's log file (the GUI no longer shows a live log panel).</summary>
+    private void AppendLog(string line)
+    {
+        try
+        {
+            Directory.CreateDirectory(SyncConfig.LogDir);
+            var path = Path.Combine(SyncConfig.LogDir, $"sync-{DateTime.Now:yyyyMMdd}.log");
+            lock (_logLock) { File.AppendAllText(path, line + Environment.NewLine); }
+        }
+        catch { /* never let logging break the UI */ }
+    }
 
     private static void OpenInEditor(string path)
     {
