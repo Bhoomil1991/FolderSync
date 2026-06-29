@@ -195,13 +195,15 @@ public sealed class MainForm : Form
         var em = _config.Email;
         var emailGroup = new GroupBox { Text = "Email notification after a scheduled sync", Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(10, 10, 10, 16) };
         // Outer 1-column layout: checkbox on top, collapsible detail grid below.
-        var emailOuter = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1 };
+        var emailOuter = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1 };
         emailOuter.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        emailOuter.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        emailOuter.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         _emailEnable = new CheckBox { Text = "Enable email notifications (sent after each scheduled run)", Checked = em.Enabled, AutoSize = true, Margin = new Padding(0, 4, 0, 4) };
         emailOuter.Controls.Add(_emailEnable, 0, 0);
 
-        var emailDetails = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 4, Visible = em.Enabled };
+        var emailDetails = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 4, Visible = em.Enabled };
         emailDetails.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         emailDetails.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
         emailDetails.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
