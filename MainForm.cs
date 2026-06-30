@@ -500,6 +500,19 @@ public sealed class MainForm : Form
         _destGrid.EndEdit();
         SaveConfig();
 
+        // Validate the source folder before doing anything.
+        if (string.IsNullOrWhiteSpace(_config.Source) || !Directory.Exists(_config.Source))
+        {
+            string shown = string.IsNullOrWhiteSpace(_config.Source) ? "(empty)" : _config.Source;
+            MessageBox.Show(this,
+                $"The source folder does not exist:\n\n{shown}\n\nPlease correct the Source path and try again.",
+                "Invalid source folder", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _statusLabel.Text = "Source folder not found — please fix the Source path.";
+            _sourceBox.Focus();
+            _sourceBox.SelectAll();
+            return;
+        }
+
         _cts = new CancellationTokenSource();
         _syncButton.Enabled = false;
         _statusLabel.Text = "Syncing…";
