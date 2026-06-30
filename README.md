@@ -38,13 +38,16 @@ in the config for additive-only / never-delete behavior.)
 
 ## Scheduling (daily / monthly / at startup)
 
-Open the app and use the **Automatic scheduling** box:
-- Pick a time, click **Enable Daily** or **Enable Monthly** (and the monthly day).
-- Click **Enable At Startup** to sync every time you log in.
-- The status line shows which tasks are installed; use the **Remove** buttons to undo.
+Tick **Enable automatic scheduling** to show the options, then per row:
+- **Daily / Monthly** — pick a time (and monthly day) and click **Enable**.
+- **At startup** — click **Enable** to sync every time you log in.
+- Each row's buttons grey out to show its state; **Disable** pauses without deleting, **Remove** deletes.
 
-These create entries in **Windows Task Scheduler** (named `FolderSync - Daily`, etc.)
-that run `FolderSync.exe --sync` as your user — no admin rights required.
+**Daily** and **Monthly** are created in **Windows Task Scheduler** (`FolderSync - Daily`, etc.).
+**At startup** uses a shortcut in your **Startup folder**
+(`…\Start Menu\Programs\Startup\FolderSync.lnk`) — a logon scheduled task would require admin,
+whereas the Startup shortcut runs as your user with **no admin rights**. All of them run
+`FolderSync.exe --sync` headlessly.
 
 ## Email notifications (after scheduled syncs)
 

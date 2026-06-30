@@ -272,16 +272,16 @@ public sealed class MainForm : Form
         _loaded = true;
         RefreshScheduleStates();
 
-        // Nested AutoSize TableLayoutPanels don't always finish measuring on the first layout
-        // pass, which clipped the email panel's last row until some later relayout occurred.
-        // Force a full relayout once the window is shown so it renders correctly from the start.
-        Shown += (_, _) =>
+        // Nested AutoSize TableLayoutPanels can under-measure on the first layout pass, which
+        // clipped the email panel's last row until some later relayout occurred. Toggling
+        // AutoSize off/on forces a correct remeasure; deferring via BeginInvoke runs it after
+        // the first paint so it sticks.
+        Shown += (_, _) => BeginInvoke(new Action(() =>
         {
-            var s = ClientSize;
-            ClientSize = new Size(s.Width, s.Height + 1);
-            ClientSize = s;
+            emailDetails.AutoSize = false; emailDetails.AutoSize = true;
+            emailOuter.AutoSize = false; emailOuter.AutoSize = true;
             root.PerformLayout();
-        };
+        }));
     }
 
     // ===== Configuration editing =====
