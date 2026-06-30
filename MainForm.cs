@@ -14,8 +14,12 @@ public sealed class MainForm : Form
     private readonly CheckBox _mirrorCheck;
     private readonly DataGridView _destGrid;
     private readonly Button _syncButton;
+    private readonly Button _previewButton;
+    private readonly Button _cancelButton;
+    private readonly ProgressBar _progress;
     private readonly object _logLock = new();
     private readonly Label _statusLabel;
+    private readonly NotifyIcon _tray;
     private readonly CheckBox _schedEnable;
     private readonly DateTimePicker _timePicker;
     private readonly NumericUpDown _monthDay;
@@ -148,11 +152,19 @@ public sealed class MainForm : Form
         var syncRow = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.LeftToRight, Margin = new Padding(0, 8, 0, 0) };
         _syncButton = new Button { Text = "Sync Now", Width = 130, Height = 40, Font = new Font("Segoe UI", 11F, FontStyle.Bold) };
         _syncButton.Click += async (_, _) => await DoSyncAsync();
+        _previewButton = new Button { Text = "Preview", Width = 90, Height = 40, Margin = new Padding(8, 3, 0, 3) };
+        _previewButton.Click += async (_, _) => await DoSyncAsync(listOnly: true);
         _statusLabel = new Label { Text = "Ready.", AutoSize = true, Margin = new Padding(14, 12, 0, 0) };
+        _cancelButton = new Button { Text = "Cancel", Width = 80, Height = 40, Margin = new Padding(8, 3, 0, 3), Visible = false };
+        _cancelButton.Click += (_, _) => { _cts?.Cancel(); _statusLabel.Text = "Cancelling…"; };
         var openLogs = new LinkLabel { Text = "Open log folder", AutoSize = true, Margin = new Padding(14, 14, 0, 0) };
         openLogs.Click += (_, _) => OpenInEditor(SyncConfig.LogDir);
+        _progress = new ProgressBar { Style = ProgressBarStyle.Marquee, Width = 180, Height = 18, Margin = new Padding(14, 12, 0, 0), Visible = false };
         syncRow.Controls.Add(_syncButton);
+        syncRow.Controls.Add(_previewButton);
+        syncRow.Controls.Add(_cancelButton);
         syncRow.Controls.Add(_statusLabel);
+        syncRow.Controls.Add(_progress);
         syncRow.Controls.Add(openLogs);
         root.Controls.Add(syncRow, 0, 1);
 
@@ -280,6 +292,8 @@ public sealed class MainForm : Form
         emailGroup.Controls.Add(emailOuter);
         root.Controls.Add(emailGroup, 0, 3);
 
+        _tray = CreateTrayIcon();
+
         _loaded = true;
         RefreshScheduleStates();
 
@@ -296,6 +310,45 @@ public sealed class MainForm : Form
         // correctly but under-reports its own preferred height, clipping the last row. Force the
         // panel's minimum height to the true sum of its row heights once it has been laid out.
         Shown += (_, _) => BeginInvoke(new Action(FixEmailPanelHeight));
+
+        // Minimizing hides the window to the tray instead of the taskbar.
+        Resize += (_, _) =>
+        {
+            if (WindowState == FormWindowState.Minimized) { Hide(); _tray.Visible = true; }
+        };
+    }
+
+    private NotifyIcon CreateTrayIcon()
+    {
+        var menu = new ContextMenuStrip();
+        menu.Items.Add("Open", null, (_, _) => ShowFromTray());
+        menu.Items.Add("Sync Now", null, async (_, _) => await DoSyncAsync());
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Exit", null, (_, _) => Close());
+
+        var tray = new NotifyIcon
+        {
+            Icon = SystemIcons.Application,
+            Text = "Folder Sync",
+            Visible = true,
+            ContextMenuStrip = menu,
+        };
+        tray.DoubleClick += (_, _) => ShowFromTray();
+        return tray;
+    }
+
+    private void ShowFromTray()
+    {
+        Show();
+        WindowState = FormWindowState.Normal;
+        Activate();
+    }
+
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        _tray.Visible = false;
+        _tray.Dispose();
+        base.OnFormClosed(e);
     }
 
     private void FixEmailPanelHeight()
@@ -492,7 +545,7 @@ public sealed class MainForm : Form
         RefreshScheduleStates();
     }
 
-    private async Task DoSyncAsync()
+    private async Task DoSyncAsync(bool listOnly = false)
     {
         if (_cts is not null) return; // already running
 
@@ -513,22 +566,37 @@ public sealed class MainForm : Form
             return;
         }
 
-        _cts = new CancellationTokenSource();
-        _syncButton.Enabled = false;
-        _statusLabel.Text = "Syncing…";
+        // Warn about destinations whose drive isn't available (e.g. Google Drive 'G:' not running).
+        var offline = _config.Targets
+            .Where(t => t.Enabled && !PathUtil.DriveAvailable(t.Destination))
+            .ToList();
+        if (offline.Count > 0)
+        {
+            string list = string.Join("\n", offline.Select(t => $"  • {t.Name} — {t.Destination}"));
+            var answer = MessageBox.Show(this,
+                $"These destinations are not available right now and will be skipped:\n\n{list}\n\nContinue anyway?",
+                "Destination not available", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (answer != DialogResult.Yes) { _statusLabel.Text = "Cancelled — destination not available."; return; }
+        }
 
-        // A fresh log file per sync; collect lines and write once at the end (no appending).
-        var logPath = SyncConfig.NewSyncLogPath();
+        _cts = new CancellationTokenSource();
+        SetSyncingUi(true);
+        _statusLabel.Text = listOnly ? "Previewing…" : "Syncing…";
+
         var sb = new StringBuilder();
         var engine = new SyncEngine(_config);
         engine.Log += line => { lock (_logLock) sb.AppendLine(line); };
+        engine.Progress += p => BeginInvoke(() => _statusLabel.Text = p);
 
+        SyncResult? result = null;
         try
         {
-            var result = await Task.Run(() => engine.RunAsync(_cts.Token));
-            _statusLabel.Text = result.Success
-                ? $"Done — last sync {DateTime.Now:HH:mm:ss}."
-                : $"Completed with errors — {DateTime.Now:HH:mm:ss}.";
+            result = await Task.Run(() => engine.RunAsync(_cts.Token, listOnly));
+        }
+        catch (OperationCanceledException)
+        {
+            lock (_logLock) sb.AppendLine("CANCELLED by user.");
+            _statusLabel.Text = "Cancelled.";
         }
         catch (Exception ex)
         {
@@ -537,12 +605,43 @@ public sealed class MainForm : Form
         }
         finally
         {
-            try { File.WriteAllText(logPath, sb.ToString()); } catch { /* logging must not break the UI */ }
-            SyncConfig.CleanupOldLogs(7);   // prune logs older than 7 days
-            _syncButton.Enabled = true;
+            SetSyncingUi(false);
             _cts.Dispose();
             _cts = null;
         }
+
+        if (listOnly)
+        {
+            // Preview: show what would change in a dialog; don't write a sync log or notify.
+            if (result is not null)
+                _statusLabel.Text = "Preview ready.";
+            using var dlg = new ResultsDialog("Preview — changes that WOULD be made", sb.ToString());
+            dlg.ShowDialog(this);
+            return;
+        }
+
+        // Real sync: write a fresh log file, prune old ones, and update status + toast.
+        try { File.WriteAllText(SyncConfig.NewSyncLogPath(), sb.ToString()); } catch { }
+        SyncConfig.CleanupOldLogs(7);
+
+        if (result is not null)
+        {
+            _statusLabel.Text = result.Success
+                ? $"Done — last sync {DateTime.Now:HH:mm:ss}."
+                : $"Completed with errors — {DateTime.Now:HH:mm:ss}.";
+            _tray.ShowBalloonTip(5000, "Folder Sync",
+                result.Success ? "Sync completed successfully." : "Sync completed with errors — see the log.",
+                result.Success ? ToolTipIcon.Info : ToolTipIcon.Warning);
+        }
+    }
+
+    /// <summary>Toggles the buttons/progress bar between idle and running states.</summary>
+    private void SetSyncingUi(bool running)
+    {
+        _syncButton.Enabled = !running;
+        _previewButton.Enabled = !running;
+        _cancelButton.Visible = running;
+        _progress.Visible = running;
     }
 
     /// <summary>Appends a one-off event (schedule/email actions) to a small rolling events log.</summary>

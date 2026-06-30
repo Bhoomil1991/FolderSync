@@ -30,15 +30,21 @@ public sealed class SyncEngine
     /// <summary>Raised for each line of progress/log output (UI + file logging).</summary>
     public event Action<string>? Log;
 
+    /// <summary>Raised with a short, human-readable status as each destination is processed.</summary>
+    public event Action<string>? Progress;
+
     public SyncEngine(SyncConfig config) => _config = config;
 
     private void Emit(string line) => Log?.Invoke(line);
 
-    public async Task<SyncResult> RunAsync(CancellationToken ct = default)
+    /// <param name="listOnly">Preview mode — robocopy only lists what would change, makes no changes.</param>
+    public async Task<SyncResult> RunAsync(CancellationToken ct = default, bool listOnly = false)
     {
         var result = new SyncResult { Success = true };
+        string verb = listOnly ? "Preview" : "Sync";
 
-        Emit($"===== Sync started {DateTime.Now:yyyy-MM-dd HH:mm:ss} =====");
+        Emit($"===== {verb} started {DateTime.Now:yyyy-MM-dd HH:mm:ss} =====");
+        if (listOnly) Emit("(PREVIEW — no files will be copied or deleted)");
         Emit($"Source : {_config.Source}");
         Emit($"Mode   : {(_config.Mirror ? "MIRROR (exact copy, deletes extras)" : "ADDITIVE (copy/update only)")}");
 
@@ -49,15 +55,12 @@ public sealed class SyncEngine
             return result;
         }
 
-        foreach (var target in _config.Targets)
+        var enabled = _config.Targets.Where(t => t.Enabled).ToList();
+        for (int i = 0; i < enabled.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
-
-            if (!target.Enabled)
-            {
-                Emit($"--- Skipping (disabled): {target.Name}");
-                continue;
-            }
+            var target = enabled[i];
+            Progress?.Invoke($"{(listOnly ? "Previewing" : "Syncing")} {i + 1} of {enabled.Count}: {target.Name}…");
 
             Emit("");
             Emit($"--- {target.Name}  ->  {target.Destination}");
@@ -72,19 +75,31 @@ public sealed class SyncEngine
                 continue;
             }
 
-            try
+            // Don't fail mid-run on an unmounted drive (e.g. Google Drive 'G:' not running).
+            if (!PathUtil.DriveAvailable(target.Destination))
             {
-                Directory.CreateDirectory(target.Destination);
-            }
-            catch (Exception ex)
-            {
-                Emit($"ERROR: cannot create destination: {ex.Message}");
-                result.Targets.Add(new TargetResult { Name = target.Name, Destination = target.Destination, Success = false, Summary = ex.Message });
+                Emit("WARNING: destination drive is not available — skipped.");
+                result.Targets.Add(new TargetResult { Name = target.Name, Destination = target.Destination, Success = false, Summary = "destination drive not available" });
                 result.Success = false;
                 continue;
             }
 
-            var tr = await RunRobocopyAsync(_config.Source, target.Destination, ct);
+            if (!listOnly)
+            {
+                try
+                {
+                    Directory.CreateDirectory(target.Destination);
+                }
+                catch (Exception ex)
+                {
+                    Emit($"ERROR: cannot create destination: {ex.Message}");
+                    result.Targets.Add(new TargetResult { Name = target.Name, Destination = target.Destination, Success = false, Summary = ex.Message });
+                    result.Success = false;
+                    continue;
+                }
+            }
+
+            var tr = await RunRobocopyAsync(_config.Source, target.Destination, ct, listOnly);
             tr.Name = target.Name;
             result.Targets.Add(tr);
             if (!tr.Success) result.Success = false;
@@ -93,19 +108,20 @@ public sealed class SyncEngine
         }
 
         Emit("");
-        Emit($"===== Sync {(result.Success ? "completed" : "completed WITH ERRORS")} {DateTime.Now:yyyy-MM-dd HH:mm:ss} =====");
+        Emit($"===== {verb} {(result.Success ? "completed" : "completed WITH ERRORS")} {DateTime.Now:yyyy-MM-dd HH:mm:ss} =====");
         return result;
     }
 
-    private async Task<TargetResult> RunRobocopyAsync(string src, string dst, CancellationToken ct)
+    private async Task<TargetResult> RunRobocopyAsync(string src, string dst, CancellationToken ct, bool listOnly)
     {
         // /MIR  = mirror (copy + purge extras) ; for additive we use /E (copy subdirs incl. empty)
         // /R:2 /W:2 = 2 retries, 2s wait      ; /MT:16 = 16 threads
         // /FFT  = relaxed (2s) timestamp compare, friendlier to cloud-sync drives
         // /XJ   = skip junctions (avoids loops) ; /NP = no per-file percent (cleaner log)
-        // /NDL  = no dir listing                 ; /TEE not used (we capture the stream)
+        // /NDL  = no dir listing                 ; /L = list only (preview, makes no changes)
         string copyMode = _config.Mirror ? "/MIR" : "/E";
-        string args = $"\"{src}\" \"{dst}\" {copyMode} /R:2 /W:2 /MT:16 /FFT /XJ /NP /NDL";
+        string listFlag = listOnly ? " /L" : "";
+        string args = $"\"{src}\" \"{dst}\" {copyMode} /R:2 /W:2 /MT:16 /FFT /XJ /NP /NDL{listFlag}";
 
         var tr = new TargetResult { Destination = dst };
         var summary = new StringBuilder();

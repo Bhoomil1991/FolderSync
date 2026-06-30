@@ -34,7 +34,15 @@ in the config for additive-only / never-delete behavior.)
 
 - **Manual (button):** double-click the **Folder Sync** shortcut on your Desktop,
   then click **Sync Now**.
+- **Preview:** click **Preview** to see exactly what *would* be copied or deleted
+  (robocopy list-only mode) — nothing is changed. Great to check before a mirror.
+- **Cancel / progress:** a progress bar and **Cancel** button appear while a sync runs.
+- **System tray:** minimizing hides the app to the tray; right-click the tray icon for
+  **Open / Sync Now / Exit**, and you get a toast notification when a sync finishes.
 - **Headless (no window):** `FolderSync.exe --sync` — used by the scheduled tasks.
+
+If a destination's drive isn't available (e.g. Google Drive's `G:` isn't running),
+the app warns you and skips that destination instead of failing mid-run.
 
 ## Scheduling (daily / monthly / at startup)
 
