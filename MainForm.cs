@@ -612,9 +612,11 @@ public sealed class MainForm : Form
 
         if (listOnly)
         {
-            // Preview: show what would change in a dialog; don't write a sync log or notify.
+            // Preview: save to a preview log file (so there's a record) and show it in a dialog.
+            try { File.WriteAllText(SyncConfig.NewPreviewLogPath(), sb.ToString()); } catch { }
+            SyncConfig.CleanupOldLogs(7);
             if (result is not null)
-                _statusLabel.Text = "Preview ready.";
+                _statusLabel.Text = "Preview ready (saved to log folder).";
             using var dlg = new ResultsDialog("Preview — changes that WOULD be made", sb.ToString());
             dlg.ShowDialog(this);
             return;

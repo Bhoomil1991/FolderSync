@@ -93,22 +93,30 @@ public sealed class SyncConfig
     public static string LogDir => Path.Combine(AppDataDir, "logs");
 
     /// <summary>A fresh, uniquely-named log file for one sync run (never reused).</summary>
-    public static string NewSyncLogPath()
+    public static string NewSyncLogPath() => NewLogPath("sync");
+
+    /// <summary>A fresh, uniquely-named log file for one preview (dry-run).</summary>
+    public static string NewPreviewLogPath() => NewLogPath("preview");
+
+    private static string NewLogPath(string prefix)
     {
         Directory.CreateDirectory(LogDir);
-        return Path.Combine(LogDir, $"sync-{DateTime.Now:yyyyMMdd-HHmmss-fff}.log");
+        return Path.Combine(LogDir, $"{prefix}-{DateTime.Now:yyyyMMdd-HHmmss-fff}.log");
     }
 
-    /// <summary>Deletes sync log files older than the given number of days.</summary>
+    /// <summary>Deletes sync/preview log files older than the given number of days.</summary>
     public static void CleanupOldLogs(int days = 7)
     {
         try
         {
             var cutoff = DateTime.Now.AddDays(-days);
-            foreach (var f in Directory.EnumerateFiles(LogDir, "sync-*.log"))
+            foreach (var pattern in new[] { "sync-*.log", "preview-*.log" })
             {
-                try { if (File.GetLastWriteTime(f) < cutoff) File.Delete(f); }
-                catch { /* skip files we can't delete */ }
+                foreach (var f in Directory.EnumerateFiles(LogDir, pattern))
+                {
+                    try { if (File.GetLastWriteTime(f) < cutoff) File.Delete(f); }
+                    catch { /* skip files we can't delete */ }
+                }
             }
         }
         catch { /* logs dir missing etc. — nothing to clean */ }
