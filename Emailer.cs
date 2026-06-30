@@ -1,3 +1,4 @@
+using System.Text;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
@@ -38,7 +39,7 @@ public static class Emailer
         string status = result.Success ? "OK" : "ERRORS";
         string subject = $"[Folder Sync] {status} — {DateTime.Now:yyyy-MM-dd HH:mm}";
 
-        var sb = new System.Text.StringBuilder();
+        var sb = new StringBuilder();
         sb.AppendLine($"Folder Sync finished at {DateTime.Now:yyyy-MM-dd HH:mm:ss} on {Environment.MachineName}.");
         sb.AppendLine($"Result: {(result.Success ? "Success" : "Completed WITH ERRORS")}");
         sb.AppendLine();

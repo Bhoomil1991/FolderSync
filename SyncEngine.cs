@@ -62,6 +62,16 @@ public sealed class SyncEngine
             Emit("");
             Emit($"--- {target.Name}  ->  {target.Destination}");
 
+            // Safety: never let a (mirror) sync target the source itself or a folder nested
+            // with it — that could delete data or loop endlessly.
+            if (PathUtil.SameOrNested(_config.Source, target.Destination))
+            {
+                Emit("ERROR: destination is the source folder or nested inside/around it — skipped.");
+                result.Targets.Add(new TargetResult { Name = target.Name, Destination = target.Destination, Success = false, Summary = "unsafe path (same as / nested with source)" });
+                result.Success = false;
+                continue;
+            }
+
             try
             {
                 Directory.CreateDirectory(target.Destination);
@@ -109,32 +119,44 @@ public sealed class SyncEngine
             RedirectStandardError = true,
             CreateNoWindow = true,
             StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
         };
 
         using var proc = new Process { StartInfo = psi };
+        proc.Start();
 
-        proc.OutputDataReceived += (_, e) =>
+        // Read both streams to completion (more reliable than the event-based API, which can
+        // drop the final summary lines), then await exit. Each stream is read on its own task.
+        var stdoutTask = ReadStreamAsync(proc.StandardOutput, line =>
         {
-            if (e.Data is null) return;
-            var line = e.Data.TrimEnd();
-            if (line.Length == 0) return;
             Emit("    " + line);
-            // Keep the robocopy summary tail (Files/Dirs/Bytes) for a short result string.
             if (line.Contains("Files :") || line.Contains("Dirs :") || line.Contains("Bytes :"))
                 summary.Append(line.Trim()).Append("  ");
-        };
-        proc.ErrorDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) Emit("    ERR: " + e.Data); };
+        });
+        var stderrTask = ReadStreamAsync(proc.StandardError, line => Emit("    ERR: " + line));
 
-        proc.Start();
-        proc.BeginOutputReadLine();
-        proc.BeginErrorReadLine();
-
-        await proc.WaitForExitAsync(ct);
+        // If cancelled, stop robocopy rather than leaving it running in the background.
+        using (ct.Register(() => { try { if (!proc.HasExited) proc.Kill(true); } catch { /* already gone */ } }))
+        {
+            try { await proc.WaitForExitAsync(ct); }
+            finally { await Task.WhenAll(stdoutTask, stderrTask); }
+        }
 
         tr.ExitCode = proc.ExitCode;
         // robocopy: 0-7 = success (8+ = at least one failure). Bit 3 (8) and above are errors.
         tr.Success = proc.ExitCode < 8;
         tr.Summary = summary.ToString().Trim();
         return tr;
+    }
+
+    /// <summary>Reads a redirected stream line-by-line, passing each non-blank line to <paramref name="onLine"/>.</summary>
+    private static async Task ReadStreamAsync(StreamReader reader, Action<string> onLine)
+    {
+        string? raw;
+        while ((raw = await reader.ReadLineAsync()) is not null)
+        {
+            var line = raw.TrimEnd();
+            if (line.Length > 0) onLine(line);
+        }
     }
 }

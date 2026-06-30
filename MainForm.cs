@@ -333,6 +333,13 @@ public sealed class MainForm : Form
             MessageBox.Show(this, "That destination is already in the list.", "Folder Sync");
             return;
         }
+        if (PathUtil.SameOrNested(_config.Source, path))
+        {
+            MessageBox.Show(this,
+                "That folder is the source — or nested inside/around it.\n\nWith Mirror on, syncing there could delete your files. Pick a different destination.",
+                "Folder Sync", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         _targets.Add(new SyncTarget { Name = new DirectoryInfo(path).Name, Destination = path, Enabled = true });
         // ListChanged handler saves automatically.
     }

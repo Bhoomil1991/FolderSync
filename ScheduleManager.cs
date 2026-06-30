@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text;
 
 namespace FolderSync;
 
@@ -139,19 +138,4 @@ public static class ScheduleManager
     }
 
     public static bool Exists(string taskName) => GetState(taskName) != TaskState.NotInstalled;
-
-    public static string Status()
-    {
-        static string Text(string t) => GetState(t) switch
-        {
-            TaskState.Enabled => "enabled",
-            TaskState.Disabled => "disabled",
-            _ => "not installed",
-        };
-        var sb = new StringBuilder();
-        sb.AppendLine($"Daily   : {Text(DailyTask)}");
-        sb.AppendLine($"Monthly : {Text(MonthlyTask)}");
-        sb.AppendLine($"At logon: {Text(LogonTask)}");
-        return sb.ToString().TrimEnd();
-    }
 }
