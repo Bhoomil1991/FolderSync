@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text;
 
 namespace FolderSync;
 
@@ -496,8 +497,11 @@ public sealed class MainForm : Form
         _syncButton.Enabled = false;
         _statusLabel.Text = "Syncing…";
 
+        // A fresh log file per sync; collect lines and write once at the end (no appending).
+        var logPath = SyncConfig.NewSyncLogPath();
+        var sb = new StringBuilder();
         var engine = new SyncEngine(_config);
-        engine.Log += AppendLogThreadSafe;
+        engine.Log += line => { lock (_logLock) sb.AppendLine(line); };
 
         try
         {
@@ -508,27 +512,27 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            AppendLog("FATAL: " + ex.Message);
+            lock (_logLock) sb.AppendLine("FATAL: " + ex.Message);
             _statusLabel.Text = "Failed.";
         }
         finally
         {
+            try { File.WriteAllText(logPath, sb.ToString()); } catch { /* logging must not break the UI */ }
+            SyncConfig.CleanupOldLogs(7);   // prune logs older than 7 days
             _syncButton.Enabled = true;
             _cts.Dispose();
             _cts = null;
         }
     }
 
-    private void AppendLogThreadSafe(string line) => AppendLog(line);
-
-    /// <summary>Writes a line to today's log file (the GUI no longer shows a live log panel).</summary>
+    /// <summary>Appends a one-off event (schedule/email actions) to a small rolling events log.</summary>
     private void AppendLog(string line)
     {
         try
         {
             Directory.CreateDirectory(SyncConfig.LogDir);
-            var path = Path.Combine(SyncConfig.LogDir, $"sync-{DateTime.Now:yyyyMMdd}.log");
-            lock (_logLock) { File.AppendAllText(path, line + Environment.NewLine); }
+            var path = Path.Combine(SyncConfig.LogDir, "events.log");
+            lock (_logLock) { File.AppendAllText(path, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {line}{Environment.NewLine}"); }
         }
         catch { /* never let logging break the UI */ }
     }

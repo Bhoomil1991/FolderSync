@@ -92,6 +92,28 @@ public sealed class SyncConfig
     [JsonIgnore]
     public static string LogDir => Path.Combine(AppDataDir, "logs");
 
+    /// <summary>A fresh, uniquely-named log file for one sync run (never reused).</summary>
+    public static string NewSyncLogPath()
+    {
+        Directory.CreateDirectory(LogDir);
+        return Path.Combine(LogDir, $"sync-{DateTime.Now:yyyyMMdd-HHmmss-fff}.log");
+    }
+
+    /// <summary>Deletes sync log files older than the given number of days.</summary>
+    public static void CleanupOldLogs(int days = 7)
+    {
+        try
+        {
+            var cutoff = DateTime.Now.AddDays(-days);
+            foreach (var f in Directory.EnumerateFiles(LogDir, "sync-*.log"))
+            {
+                try { if (File.GetLastWriteTime(f) < cutoff) File.Delete(f); }
+                catch { /* skip files we can't delete */ }
+            }
+        }
+        catch { /* logs dir missing etc. — nothing to clean */ }
+    }
+
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
     public static SyncConfig Load()
