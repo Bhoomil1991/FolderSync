@@ -22,6 +22,8 @@ public sealed class MainForm : Form
     private sealed record SchedRow(string TaskName, Button Enable, Button Disable, Button Remove);
     private readonly List<SchedRow> _scheduleRows = new();
 
+    private TableLayoutPanel _emailDetails = null!;
+
     private readonly CheckBox _emailEnable;
     private readonly TextBox _emailFrom;
     private readonly TextBox _emailPass;
@@ -54,9 +56,9 @@ public sealed class MainForm : Form
         ClientSize = new Size(760, 880);
         MinimumSize = new Size(720, 400);
 
-        // Scrollable host so the whole window scrolls when content is taller than the window.
-        var scrollHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
-        Controls.Add(scrollHost);
+        // Form-level AutoScroll: when the content stack is taller than the window, a
+        // vertical scrollbar appears. (AutoScroll on the Form is more reliable than on a child panel.)
+        AutoScroll = true;
 
         var root = new TableLayoutPanel
         {
@@ -71,7 +73,7 @@ public sealed class MainForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // sync row
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // schedule
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // email
-        scrollHost.Controls.Add(root);
+        Controls.Add(root);
 
         // ===== Configuration (editable) =====
         var info = new GroupBox { Text = "Configuration", Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(10) };
@@ -204,11 +206,14 @@ public sealed class MainForm : Form
         _emailEnable = new CheckBox { Text = "Enable email notifications (sent after each scheduled run)", Checked = em.Enabled, AutoSize = true, Margin = new Padding(0, 4, 0, 4) };
         emailOuter.Controls.Add(_emailEnable, 0, 0);
 
-        var emailDetails = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 4, Visible = em.Enabled };
+        var emailDetails = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 4, RowCount = 4, Visible = em.Enabled };
+        _emailDetails = emailDetails;
         emailDetails.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         emailDetails.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
         emailDetails.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         emailDetails.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
+        // Explicit auto-height rows — without these the last row gets no height and is clipped.
+        for (int i = 0; i < 4; i++) emailDetails.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         // From/login + Password
         emailDetails.Controls.Add(new Label { Text = "Gmail address:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 8, 6, 0) }, 0, 0);
@@ -264,7 +269,12 @@ public sealed class MainForm : Form
         emailOuter.Controls.Add(emailDetails, 0, 1);
 
         // Show the fields only when the checkbox is ticked.
-        _emailEnable.CheckedChanged += (_, _) => { emailDetails.Visible = _emailEnable.Checked; SaveEmailConfig(); };
+        _emailEnable.CheckedChanged += (_, _) =>
+        {
+            emailDetails.Visible = _emailEnable.Checked;
+            SaveEmailConfig();
+            if (_emailEnable.Checked) BeginInvoke(new Action(FixEmailPanelHeight));
+        };
 
         emailGroup.Controls.Add(emailOuter);
         root.Controls.Add(emailGroup, 0, 3);
@@ -272,17 +282,31 @@ public sealed class MainForm : Form
         _loaded = true;
         RefreshScheduleStates();
 
-        // Nested AutoSize TableLayoutPanels can under-measure on the first layout pass, which
-        // clipped the email panel's last row until some later relayout occurred. Toggling
-        // AutoSize off/on forces a correct remeasure; deferring via BeginInvoke runs it after
-        // the first paint so it sticks.
-        Shown += (_, _) => BeginInvoke(new Action(() =>
+        // Keep the window within the screen's working area (small/scaled displays); AutoScroll
+        // then provides a scrollbar for any overflow.
+        Load += (_, _) =>
         {
-            emailDetails.AutoSize = false; emailDetails.AutoSize = true;
-            emailOuter.AutoSize = false; emailOuter.AutoSize = true;
-            root.PerformLayout();
-        }));
+            var wa = Screen.FromControl(this).WorkingArea;
+            if (Height > wa.Height) { Height = wa.Height; Top = wa.Top; }
+            if (Width > wa.Width) { Width = wa.Width; Left = wa.Left; }
+        };
+
+        // WinForms bug: a TableLayoutPanel with AutoSize + Percent columns lays out its rows
+        // correctly but under-reports its own preferred height, clipping the last row. Force the
+        // panel's minimum height to the true sum of its row heights once it has been laid out.
+        Shown += (_, _) => BeginInvoke(new Action(FixEmailPanelHeight));
     }
+
+    private void FixEmailPanelHeight()
+    {
+        int needed = _emailDetails.GetRowHeights().Sum();
+        if (needed > 0 && _emailDetails.Height < needed)
+        {
+            _emailDetails.MinimumSize = new Size(0, needed);
+            PerformLayout();
+        }
+    }
+
 
     // ===== Configuration editing =====
 
